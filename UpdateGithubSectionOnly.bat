@@ -1,73 +1,62 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM Step 1: Download the file
 set "url=https://raw.hellogithub.com/hosts"
-set "downloadedFile=%TEMP%\hosts_downloaded"
-powershell -Command "(New-Object System.Net.WebClient).DownloadFile('%url%', '%downloadedFile%')"
+set "tempfile=%temp%\remote-hosts"
+set "hostsfile=C:\Windows\System32\drivers\etc\hosts"
+set "string1=### Github Start"
+set "string2=### Github End"
+set "found1=0"
+set "found2=0"
+set "point1=0"
+set "point2=0"
 
-REM Step 2: Open the hosts file and find marker lines
-set "hostsFile=C:\Windows\System32\drivers\etc\hosts"
-set "tempFile=%TEMP%\hosts_temp"
-set "foundStart=0"
-set "foundEnd=0"
+rem Download the remote-hosts file
+powershell -Command "Invoke-WebRequest -Uri %url% -OutFile %tempfile%"
 
-if exist "%hostsFile%" (
-    for /f "tokens=1,* delims=:" %%i in ('findstr /n "^" "%hostsFile%"') do (
-        set "line=%%j"
-        if "!line!"=="### Github Start" set "foundStart=1"
-        if "!line!"=="### Github End" set "foundEnd=1"
+rem Read the hosts file and find the positions of the strings
+for /f "tokens=1,* delims=:" %%a in ('findstr /n "^" %hostsfile%') do (
+    if "!found1!"=="0" if "%%b"=="%string1%" (
+        set "found1=1"
+        set "point1=%%a"
+    )
+    if "!found2!"=="0" if "%%b"=="%string2%" (
+        set "found2=1"
+        set "point2=%%a"
     )
 )
 
-REM Step 3: Replace or append content based on marker lines
-if %foundStart% equ 1 if %foundEnd% equ 1 (
-    echo Replacing content between marker lines...
-    (
-        set "skip="
-        for /f "tokens=1,* delims=:" %%i in ('findstr /n "^" "%hostsFile%"') do (
-            set "line=%%j"
-            if "!line!"=="### Github Start" (
-                echo !line!
-                for /f "delims=" %%k in ('type "%downloadedFile%"') do (
-                    if "%%k"=="" (
-                        echo.
-                    ) else (
-                        echo %%k
-                    )
-                )
-                set "skip=1"
-            ) else if "!line!"=="### Github End" (
-                echo !line!
-                set "skip="
-            ) else if not defined skip (
-                if "!line!"=="" (
-                    echo.
-                ) else (
-                    echo !line!
-                )
-            )
-        )
-    ) > "%tempFile%"
-) else (
-    echo Marker lines not found, appending content...
-    type "%hostsFile%" > "%tempFile%"
-    echo. >> "%tempFile%"
-    for /f "delims=" %%k in ('type "%downloadedFile%"') do (
-        if "%%k"=="" (
-            echo.
-        ) else (
-            echo %%k
-        )
-    )
+if "!found1!"=="0" (
+    echo String "%string1%" not found in %hostsfile%
+    copy /b %hostsfile% + %tempfile% C.txt
+    goto :movefile
+)
+if "!found2!"=="0" (
+    echo String "%string2%" not found in %hostsfile%
+    copy /b %hostsfile% + %tempfile% C.txt
+    goto :movefile
 )
 
-REM Step 4: Save the new file
-move /y "%tempFile%" "%hostsFile%"
+rem Split the hosts file into A1.txt and A2.txt
+(for /f "tokens=1,* delims=:" %%a in ('findstr /n "^" %hostsfile%') do (
+    if %%a leq !point1! echo(%%b
+)) > A1.txt
 
-REM Step 5: Refresh the DNS
+(for /f "tokens=1,* delims=:" %%a in ('findstr /n "^" %hostsfile%') do (
+    if %%a geq !point2! echo(%%b
+)) > A2.txt
+
+rem Concatenate A1.txt, remote-hosts, and A2.txt into C.txt
+copy /b A1.txt + %tempfile% + A2.txt C.txt
+
+:movefile
+rem Move C.txt to overwrite the hosts file
+move /y C.txt %hostsfile%
+
+rem Refresh the DNS
 ipconfig /flushdns
 
-echo Operation completed.
+echo Hosts file has been updated successfully
+
 endlocal
 pause
